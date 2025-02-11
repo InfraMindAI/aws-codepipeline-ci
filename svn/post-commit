@@ -1,0 +1,61 @@
+#set aws credentials
+export AWS_DEFAULT_REGION=    #insert your AWS region here, for example: ca-central-1
+export AWS_ACCESS_KEY_ID=     #insert value of svn_user_access_key_id output from svn-pipeline
+export AWS_SECRET_ACCESS_KEY= #insert value of svn_user_secret_access_key output from svn-pipeline
+SVN_SERVER_HOME_DIRECTORY=    #insert SVN server user home directory, for example: '/home/svn'
+
+REPOSITORY_PATH="$1"
+REVISION="$2"
+
+SAVED_IFS=$IFS
+
+#derive project name from path
+IFS=$'/'
+arr=($REPOSITORY_PATH)
+PROJECT_NAME=${arr[3]}
+
+#open stdin & stderr
+exec 1<>$SVN_SERVER_HOME_DIRECTORY/hook-log/$PROJECT_NAME-$REVISION.log
+exec 2>&1
+
+#get which files has been changed
+IFS=$SAVED_IFS
+svnlook changed $REPOSITORY_PATH --revision $REVISION
+changelog=$(svnlook changed $REPOSITORY_PATH --revision $REVISION)
+
+#we are only analyzing 1st line of changeset
+IFS=$'\n'
+arr=($changelog)
+FIRST_LINE="${arr[0]}"
+FIRST_LINE_SLASHES_COUNT=`echo $FIRST_LINE | tr -cd '/' | wc -c`
+
+#find branch name
+BRANCH_NAME=''
+IFS=$'/'
+arr=($FIRST_LINE)
+if [[ "${arr[0]}" == *"  branches"* ]]
+then
+  BRANCH_NAME="${arr[1]}"
+else
+  BRANCH_NAME='trunk'
+fi
+echo "branch <$BRANCH_NAME>"
+
+IFS=$SAVED_IFS
+PIPELINE_NAME="svn-${PROJECT_NAME}-${BRANCH_NAME}"
+
+#find op: create/delete/commit
+if [[ $FIRST_LINE == "A   branches/"* ]] && [ "${FIRST_LINE: -1}" == "/" ] && [ $FIRST_LINE_SLASHES_COUNT == 2 ]
+then
+  echo "Creating pipeline <$PIPELINE_NAME>"
+  PIPELINE_TEMPLATE=`PROJECT_NAME=$PROJECT_NAME BRANCH_NAME=$BRANCH_NAME envsubst < $SVN_SERVER_HOME_DIRECTORY/pipeline.tmpl`
+  PIPELINE_TEMPLATE=`echo $PIPELINE_TEMPLATE | tr -d ' '`
+  aws codepipeline create-pipeline --cli-input-json $PIPELINE_TEMPLATE
+elif [[ $FIRST_LINE == "D   branches/"* ]] && [ "${FIRST_LINE: -1}" == "/" ] && [ $FIRST_LINE_SLASHES_COUNT == 2 ]
+then
+  echo "Deleting pipeline <$PIPELINE_NAME>"
+  aws codepipeline delete-pipeline --name $PIPELINE_NAME
+else
+  echo "Starting pipeline <$PIPELINE_NAME>"
+  aws codepipeline start-pipeline-execution --name $PIPELINE_NAME
+fi

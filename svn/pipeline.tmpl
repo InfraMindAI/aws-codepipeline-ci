@@ -1,0 +1,63 @@
+{
+    "pipeline": {
+        "name": "svn-${PROJECT_NAME}-${BRANCH_NAME}",
+        "roleArn": "arn:aws:iam::[[[your_aws_account_id]]]]:role/svn-codepipeline-role",
+        "artifactStore": {
+            "type": "S3",
+            "location": "[[[build_bucket_name]]]"
+        },
+        "stages": [
+            {
+                "name": "Source",
+                "actions": [
+                    {
+                        "name": "Source",
+                        "actionTypeId": {
+                            "category": "Source",
+                            "owner": "AWS",
+                            "provider": "S3",
+                            "version": "1"
+                        },
+                        "runOrder": 1,
+                        "configuration": {
+                            "S3Bucket": "[[[build_bucket_name]]]",
+                            "S3ObjectKey": "svn_pipelines/common_build_resources.zip",
+                            "PollForSourceChanges": "false"
+                        },
+                        "outputArtifacts": [
+                            {
+                                "name": "source_output"
+                            }
+                        ],
+                        "inputArtifacts": []
+                    }
+                ]
+            },
+            {
+                "name": "Build",
+                "actions": [
+                    {
+                        "name": "Build",
+                        "actionTypeId": {
+                            "category": "Build",
+                            "owner": "AWS",
+                            "provider": "CodeBuild",
+                            "version": "1"
+                        },
+                        "runOrder": 1,
+                        "configuration": {
+                            "EnvironmentVariables": "[{\"name\":\"SOURCE_PROJECT\",\"type\":\"PLAINTEXT\",\"value\":\"${PROJECT_NAME}\"},{\"name\":\"SOURCE_BRANCH\",\"type\":\"PLAINTEXT\",\"value\":\"branches/${BRANCH_NAME}\"}]",
+                            "ProjectName": "svn-codebuild-project"
+                        },
+                        "outputArtifacts": [],
+                        "inputArtifacts": [
+                            {
+                                "name": "source_output"
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}
